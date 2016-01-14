@@ -8,7 +8,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/jalcaldea/7z-stream.git"
+    "url": "https://github.com/jalcaldea/7z-stream.git"
   },
   "keywords": [
     "7z",
