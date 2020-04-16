@@ -557,6 +557,41 @@ var Sevenzip = function (buffer) {
         return packet;
     }
 
+    this._lzma2Decoder = function (properties) {
+        return function (buffer) {
+            var p = properties[0] & 0x3F;
+            var dictSize = p == 40 ? 0xFFFFFFFF : (2 | (p & 1)) << p / 2 + 11 >>> 0;
+
+            var outBuffers = [];
+
+            var buffer = new MyBuffer(buffer);
+            while ((control = buffer.readByte()) != 0) {
+                if (control == 1) { //Uncompressed chunk
+                    var length = buffer.read(2).readUIntBE(0, 2) + 1;
+                    outBuffers.push(buffer.read(length).getBuffer());
+                } else if (control >= 0x80) { //LZMA chunk
+                    var uncompressedLength = (buffer.read(2).readUIntBE(0, 2) + 1) | ((control & 0b11111) << 16);
+                    var compressedLength = buffer.read(2).readUIntBE(0, 2) + 1;
+
+                    var lclppb = buffer.readByte();
+
+                    var lzmaStream = buffer.read(compressedLength).getBuffer();
+
+                    var packetBuffer = Buffer.concat([new Buffer(13).fill(0), lzmaStream]);
+                    packetBuffer.writeUInt8(lclppb, 0);
+                    packetBuffer.writeUInt32LE(dictSize, 1);
+                    packetBuffer.writeBigUInt64LE(BigInt(uncompressedLength), 5);
+
+                    outBuffers.push(lzma.decompressFile(packetBuffer));
+                } else {
+                    throw new Error("LZMA2 control byte "+control+" is unsupported!");
+                }
+            }
+
+            return Buffer.concat(outBuffers);
+        }
+    },
+
     this._parseStreamInfo = function () {
 
         var _parent = this;
@@ -581,15 +616,12 @@ var Sevenzip = function (buffer) {
 
                             packetBuffer = Buffer.concat([folder.coders[0].properties, new Buffer(8).fill(0), packetBuffer]);
                             packetBuffer.writeBigUInt64LE(BigInt(folder.UnPackSize[0]), folder.coders[0].properties.length, 8);
-
                         } else if (folder.coders[0].decompressionMethodId[0] == 0x21) {
-                            throw new Error("LZMA2 Algorithm it's not yet implemented.");
-
+                            decoder = _parent._lzma2Decoder(folder.coders[0].properties);
                         } else if (folder.coders[0].decompressionMethodId[0] == 0x04 && folder.coders[0].decompressionMethodId[1] == 0x01 && folder.coders[0].decompressionMethodId[2] == 0x08) {
                             throw new Error("DEFLATE Algorithm it's not yet implemented.");
                         } else if (folder.coders[0].decompressionMethodId[0] == 0x06 && folder.coders[0].decompressionMethodId[1] == 0xf1 && folder.coders[0].decompressionMethodId[2] == 0x07 && folder.coders[0].decompressionMethodId[3] == 0x01) {
                             throw new Error("PASSWORD PROTECTED File! AES Algorithm it's not yet implemented.");
-
                         }
 
                         this._unpackedData = new MyBuffer(decoder(packetBuffer));
@@ -623,7 +655,7 @@ var Sevenzip = function (buffer) {
                         packetBuffer = Buffer.concat([folder.coders[0].properties, new Buffer(8).fill(0), packetBuffer]);
                         packetBuffer.writeBigUInt64LE(BigInt(folder.UnPackSize[0]), folder.coders[0].properties.length, 8);
                     } else if (folder.coders[0].decompressionMethodId[0] == 0x21) {
-                        throw new Error("LZMA2 Algorithm it's not yet implemented.");
+                        decoder = _parent._lzma2Decoder(folder.coders[0].properties);
                     } else if (folder.coders[0].decompressionMethodId[0] == 0x04 && folder.coders[0].decompressionMethodId[1] == 0x01 && folder.coders[0].decompressionMethodId[2] == 0x08) {
                         throw new Error("DEFLATE Algorithm it's not yet implemented.");
                     } else if (folder.coders[0].decompressionMethodId[0] == 0x06 && folder.coders[0].decompressionMethodId[1] == 0xf1 && folder.coders[0].decompressionMethodId[2] == 0x07 && folder.coders[0].decompressionMethodId[3] == 0x01) {
